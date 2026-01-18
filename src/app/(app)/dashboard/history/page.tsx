@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Search, Plus, History, ChevronDown, ArrowUpDown, MoreHorizontal, Eye, Trash2, Folder, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Search, Plus, History, ChevronDown, ArrowUpDown, MoreHorizontal, Eye, Trash2, Folder, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -28,42 +28,19 @@ import {
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
 import { toast } from "sonner"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
 
-// Mock data for demonstration
-const mockPetitions = [
-    {
-        id: "1",
-        name: "Atropelamento com Fraturas Bilaterais",
-        createdAt: "16/01/2026 15:37",
-        status: "Finalizada",
-        type: "Abertura de Processo Adminis...",
-        area: "Administrativo",
-    },
-    {
-        id: "2",
-        name: "Atropelamento Pedestre: Indenização Devida",
-        createdAt: "15/01/2026 18:19",
-        status: "Finalizada",
-        type: "Abertura de Processo Adminis...",
-        area: "Administrativo",
-    },
-    {
-        id: "3",
-        name: "Recurso Administrativo - Multa de Trânsito",
-        createdAt: "14/01/2026 10:45",
-        status: "Rascunho",
-        type: "Recurso Administrativo",
-        area: "Trânsito",
-    },
-    {
-        id: "4",
-        name: "Petição Inicial - Danos Morais",
-        createdAt: "12/01/2026 09:30",
-        status: "Finalizada",
-        type: "Petição Inicial",
-        area: "Cível",
-    },
-]
+interface Piece {
+    id: string
+    title: string | null
+    status: string
+    createdAt: string
+    template: {
+        title: string
+        category: string
+    }
+}
 
 export default function HistoryPage() {
     const [searchQuery, setSearchQuery] = useState("")
@@ -72,24 +49,77 @@ export default function HistoryPage() {
     const [areaFilter, setAreaFilter] = useState("all")
     const [currentPage, setCurrentPage] = useState(1)
     const [rowsPerPage, setRowsPerPage] = useState(10)
-    const [activeTab, setActiveTab] = useState<"criar" | "historico">("historico")
+    const [pieces, setPieces] = useState<Piece[]>([])
+    const [totalPages, setTotalPages] = useState(1)
+    const [total, setTotal] = useState(0)
+    const [isLoading, setIsLoading] = useState(true)
 
-    const filteredPetitions = mockPetitions.filter((petition) => {
-        const matchesSearch = petition.name.toLowerCase().includes(searchQuery.toLowerCase())
-        const matchesStatus = statusFilter === "all" || petition.status.toLowerCase() === statusFilter
-        const matchesType = typeFilter === "all" || petition.type.toLowerCase().includes(typeFilter)
-        const matchesArea = areaFilter === "all" || petition.area.toLowerCase() === areaFilter
-        return matchesSearch && matchesStatus && matchesType && matchesArea
-    })
+    // Fetch pieces from API
+    useEffect(() => {
+        async function fetchPieces() {
+            setIsLoading(true)
+            try {
+                const params = new URLSearchParams({
+                    page: currentPage.toString(),
+                    limit: rowsPerPage.toString(),
+                })
 
-    const totalPages = Math.ceil(filteredPetitions.length / rowsPerPage)
-    const paginatedPetitions = filteredPetitions.slice(
-        (currentPage - 1) * rowsPerPage,
-        currentPage * rowsPerPage
-    )
+                if (searchQuery) params.set('search', searchQuery)
+                if (statusFilter !== 'all') params.set('status', statusFilter)
 
-    const handleDelete = (id: string) => {
-        toast.success("Peça excluída com sucesso!")
+                const response = await fetch(`/api/pieces?${params}`)
+                if (!response.ok) {
+                    throw new Error('Failed to fetch pieces')
+                }
+
+                const data = await response.json()
+                setPieces(data.pieces || [])
+                setTotalPages(data.totalPages || 1)
+                setTotal(data.total || 0)
+            } catch (error) {
+                console.error('Error fetching pieces:', error)
+                toast.error('Erro ao carregar peças')
+            } finally {
+                setIsLoading(false)
+            }
+        }
+
+        fetchPieces()
+    }, [currentPage, rowsPerPage, searchQuery, statusFilter])
+
+    const formatDate = (dateString: string) => {
+        try {
+            return format(new Date(dateString), "dd/MM/yyyy HH:mm", { locale: ptBR })
+        } catch {
+            return dateString
+        }
+    }
+
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'completed':
+                return { label: 'Finalizada', className: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700' }
+            case 'draft':
+                return { label: 'Rascunho', className: 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700' }
+            case 'generating':
+                return { label: 'Gerando', className: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700' }
+            default:
+                return { label: status, className: 'bg-gray-50 text-gray-700 border-gray-200' }
+        }
+    }
+
+    const handleDelete = async (id: string) => {
+        try {
+            const response = await fetch(`/api/pieces/${id}`, { method: 'DELETE' })
+            if (response.ok) {
+                setPieces(pieces.filter(p => p.id !== id))
+                toast.success("Peça excluída com sucesso!")
+            } else {
+                toast.error("Erro ao excluir peça")
+            }
+        } catch (error) {
+            toast.error("Erro ao excluir peça")
+        }
     }
 
     return (
@@ -98,12 +128,16 @@ export default function HistoryPage() {
             <div className="flex items-start justify-between">
                 <div>
                     <h1 className="text-2xl font-bold">Histórico de Peças Jurídicas</h1>
-                    <p className="text-muted-foreground text-sm">Histórico de peças jurídicas criadas</p>
+                    <p className="text-muted-foreground text-sm">
+                        {total > 0 ? `${total} peça(s) encontrada(s)` : 'Histórico de peças jurídicas criadas'}
+                    </p>
                 </div>
                 <div className="w-72">
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
+                            id="search-history"
+                            name="search"
                             placeholder="Buscar histórico de peças..."
                             className="pl-9"
                             value={searchQuery}
@@ -113,9 +147,8 @@ export default function HistoryPage() {
                 </div>
             </div>
 
-            {/* Tabs and Help Link - Matching dashboard design */}
+            {/* Tabs and Help Link */}
             <div className="flex items-center justify-between">
-                {/* Criar/Histórico Toggle - Same design as dashboard */}
                 <div className="bg-gray-100 dark:bg-zinc-900/80 p-1.5 rounded-xl flex items-center shadow-sm border border-gray-200 dark:border-zinc-700/50">
                     <Link
                         href="/dashboard"
@@ -140,22 +173,23 @@ export default function HistoryPage() {
             {/* Filters */}
             <div className="flex gap-4">
                 <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Status</label>
+                    <label htmlFor="status-filter" className="text-xs text-muted-foreground">Status</label>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-40">
+                        <SelectTrigger id="status-filter" className="w-40">
                             <SelectValue placeholder="Todos os status" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todos os status</SelectItem>
-                            <SelectItem value="finalizada">Finalizada</SelectItem>
-                            <SelectItem value="rascunho">Rascunho</SelectItem>
+                            <SelectItem value="completed">Finalizada</SelectItem>
+                            <SelectItem value="draft">Rascunho</SelectItem>
+                            <SelectItem value="generating">Gerando</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
                 <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Tipo</label>
+                    <label htmlFor="type-filter" className="text-xs text-muted-foreground">Tipo</label>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
-                        <SelectTrigger className="w-40">
+                        <SelectTrigger id="type-filter" className="w-40">
                             <SelectValue placeholder="Todos os tipos" />
                         </SelectTrigger>
                         <SelectContent>
@@ -167,9 +201,9 @@ export default function HistoryPage() {
                     </Select>
                 </div>
                 <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Área</label>
+                    <label htmlFor="area-filter" className="text-xs text-muted-foreground">Área</label>
                     <Select value={areaFilter} onValueChange={setAreaFilter}>
-                        <SelectTrigger className="w-40">
+                        <SelectTrigger id="area-filter" className="w-40">
                             <SelectValue placeholder="Todas as áreas" />
                         </SelectTrigger>
                         <SelectContent>
@@ -200,81 +234,96 @@ export default function HistoryPage() {
                                 </Button>
                             </TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead>Tipos</TableHead>
-                            <TableHead>Área</TableHead>
+                            <TableHead>Modelo</TableHead>
+                            <TableHead>Categoria</TableHead>
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {paginatedPetitions.length === 0 ? (
+                        {isLoading ? (
+                            <TableRow>
+                                <TableCell colSpan={6} className="h-24 text-center">
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        <span className="text-muted-foreground">Carregando...</span>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        ) : pieces.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                                    Nenhuma peça encontrada.
+                                    <div className="space-y-2">
+                                        <p>Nenhuma peça encontrada.</p>
+                                        <Link href="/dashboard">
+                                            <Button variant="outline" size="sm" className="gap-2">
+                                                <Plus className="h-4 w-4" />
+                                                Criar nova peça
+                                            </Button>
+                                        </Link>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            paginatedPetitions.map((petition) => (
-                                <TableRow key={petition.id}>
-                                    <TableCell>
-                                        <Link
-                                            href={`/editor/${petition.id}`}
-                                            className="flex items-center gap-2 hover:text-green-600 transition-colors"
-                                        >
-                                            <FileText className="h-4 w-4 text-muted-foreground" />
-                                            <span className="font-medium hover:underline">{petition.name}</span>
-                                        </Link>
-                                    </TableCell>
-                                    <TableCell className="text-muted-foreground">
-                                        {petition.createdAt}
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge
-                                            variant="outline"
-                                            className={
-                                                petition.status === "Finalizada"
-                                                    ? "bg-green-50 text-green-700 border-green-200"
-                                                    : "bg-yellow-50 text-yellow-700 border-yellow-200"
-                                            }
-                                        >
-                                            {petition.status === "Finalizada" && "✓ "}
-                                            {petition.status}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                                        {petition.type}
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex items-center gap-2 text-muted-foreground">
-                                            <Folder className="h-4 w-4" />
-                                            {petition.area}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem asChild>
-                                                    <Link href={`/editor/${petition.id}`} className="flex items-center gap-2">
-                                                        <Eye className="h-4 w-4" />
-                                                        Ver peça
-                                                    </Link>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    className="text-red-600 focus:text-red-600"
-                                                    onClick={() => handleDelete(petition.id)}
-                                                >
-                                                    <Trash2 className="h-4 w-4 mr-2" />
-                                                    Excluir
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
-                                </TableRow>
-                            ))
+                            pieces.map((piece) => {
+                                const statusBadge = getStatusBadge(piece.status)
+                                return (
+                                    <TableRow key={piece.id}>
+                                        <TableCell>
+                                            <Link
+                                                href={`/editor/${piece.id}`}
+                                                className="flex items-center gap-2 hover:text-green-600 transition-colors"
+                                            >
+                                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                                <span className="font-medium hover:underline">
+                                                    {piece.title || piece.template.title}
+                                                </span>
+                                            </Link>
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground">
+                                            {formatDate(piece.createdAt)}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className={statusBadge.className}>
+                                                {piece.status === 'completed' && '✓ '}
+                                                {statusBadge.label}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground max-w-[200px] truncate">
+                                            {piece.template.title}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2 text-muted-foreground">
+                                                <Folder className="h-4 w-4" />
+                                                {piece.template.category}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem asChild>
+                                                        <Link href={`/editor/${piece.id}`} className="flex items-center gap-2">
+                                                            <Eye className="h-4 w-4" />
+                                                            Ver peça
+                                                        </Link>
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        className="text-red-600 focus:text-red-600"
+                                                        onClick={() => handleDelete(piece.id)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4 mr-2" />
+                                                        Excluir
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    </TableRow>
+                                )
+                            })
                         )}
                     </TableBody>
                 </Table>
@@ -283,9 +332,9 @@ export default function HistoryPage() {
             {/* Pagination */}
             <div className="flex items-center justify-end gap-6">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Linhas por Página</span>
+                    <label htmlFor="rows-per-page" className="text-sm text-muted-foreground">Linhas por Página</label>
                     <Select value={rowsPerPage.toString()} onValueChange={(v) => setRowsPerPage(Number(v))}>
-                        <SelectTrigger className="w-16 h-8">
+                        <SelectTrigger id="rows-per-page" className="w-16 h-8">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

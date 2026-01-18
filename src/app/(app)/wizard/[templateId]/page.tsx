@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, use, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { WizardHeader } from "@/components/wizard/wizard-header"
 import { Button } from "@/components/ui/button"
 import { StepASummary } from "@/components/wizard/steps/step-a-summary"
 import { StepBTheses } from "@/components/wizard/steps/step-b-theses"
 import { StepGGeneration } from "@/components/wizard/steps/step-g-generation"
+import { toast } from "sonner"
 
 const STEPS = [
     { id: "summary", label: "Dados Iniciais", description: "Alimente a IA" },
@@ -18,9 +19,10 @@ export default function WizardPage({ params: paramsPromise }: { params: Promise<
     const params = use(paramsPromise)
     const router = useRouter()
     const [currentStep, setCurrentStep] = useState(0)
+    const [isCreating, setIsCreating] = useState(false)
     const [formData, setFormData] = useState({
         summary: "",
-        // ... other fields
+        theses: [] as Array<{ id: string; title: string; content: string }>,
     })
 
     // Mock template data based on ID
@@ -38,6 +40,48 @@ export default function WizardPage({ params: paramsPromise }: { params: Promise<
             setCurrentStep(currentStep - 1)
         }
     }
+
+    // Create piece in database and navigate to editor
+    const handleGenerationComplete = useCallback(async () => {
+        if (isCreating) return
+        setIsCreating(true)
+
+        try {
+            console.log('[Wizard] Creating piece with templateId:', params.templateId)
+            console.log('[Wizard] Form data:', formData)
+
+            // Create the piece in the database
+            const response = await fetch('/api/pieces', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    templateId: params.templateId,
+                    title: null, // Will use template title
+                    inputsJson: { summary: formData.summary },
+                    thesesJson: formData.theses,
+                }),
+            })
+
+            console.log('[Wizard] Response status:', response.status, response.statusText)
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+                console.error('[Wizard] API error response:', errorData)
+                throw new Error(errorData.error || `Failed to create piece (${response.status})`)
+            }
+
+            const piece = await response.json()
+            console.log('[Wizard] Piece created successfully:', piece.id)
+
+            // Navigate to editor with the REAL piece ID
+            router.push(`/editor/${piece.id}`)
+        } catch (error) {
+            console.error('[Wizard] Error creating piece:', error)
+            const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido'
+            toast.error(`Erro ao criar documento: ${errorMessage}`)
+            setIsCreating(false)
+        }
+    }, [params.templateId, formData, router, isCreating])
 
     return (
         <div className="flex flex-col min-h-screen bg-dot-pattern">
@@ -61,7 +105,7 @@ export default function WizardPage({ params: paramsPromise }: { params: Promise<
 
                     {currentStep === 1 && <StepBTheses onNext={nextStep} onPrev={prevStep} />}
 
-                    {currentStep === 2 && <StepGGeneration onComplete={() => router.push(`/editor/${params.templateId}-${Date.now()}`)} />}
+                    {currentStep === 2 && <StepGGeneration onComplete={handleGenerationComplete} />}
 
                     {currentStep > 0 && currentStep < STEPS.length - 1 && (
                         <div className="flex justify-between mt-6">
